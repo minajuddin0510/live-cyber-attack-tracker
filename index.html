@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Cyber Attack Map</title>
+    
+    <!-- Leaflet.js -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: #000;
+            color: #0f0;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Scanline effect overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 255, 0, 0.03),
+                rgba(0, 255, 0, 0.03) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            left: 360px;
+            right: 320px;
+            height: 100%;
+            background: #0a0e27;
+        }
+
+        /* Leaflet dark theme adjustments */
+        .leaflet-container {
+            background: #0a0e27 !important;
+        }
+
+        .leaflet-tile-pane {
+            filter: brightness(0.8) contrast(1.1);
+        }
+
+        /* Left Panel - Stats */
+        .stats-panel {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 320px;
+            background: rgba(15, 15, 35, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 100;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        .stats-panel h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #0f0;
+            text-shadow: 0 0 10px #0f0;
+            border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+            padding-bottom: 10px;
+        }
+
+        .attack-counter {
+            font-size: 32px;
+            color: #ff0000;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #ff0000;
+            font-weight: bold;
+        }
+
+        .attack-counter-label {
+            font-size: 12px;
+            color: #0f0;
+            margin-bottom: 15px;
+        }
+
+        .stats-section {
+            margin-top: 15px;
+        }
+
+        .stats-section h3 {
+            font-size: 12px;
+            color: #00ff00;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stats-list {
+            list-style: none;
+            font-size: 11px;
+        }
+
+        .stats-list li {
+            padding: 6px 0;
+            border-bottom: 1px dashed rgba(0, 255, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            color: #0f0;
+        }
+
+        .stats-list li:last-child {
+            border-bottom: none;
+        }
+
+        .stat-rank {
+            color: #ffaa00;
+            margin-right: 8px;
+        }
+
+        /* Right Panel - Attack Breakdown */
+        .breakdown-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 280px;
+            background: rgba(15, 15, 35, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 100;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        .breakdown-panel h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #0f0;
+            text-shadow: 0 0 10px #0f0;
+            border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+            padding-bottom: 10px;
+        }
+
+        .attack-type {
+            margin-bottom: 15px;
+        }
+
+        .attack-type-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .attack-type-name {
+            color: #0f0;
+        }
+
+        .attack-type-count {
+            font-weight: bold;
+            min-width: 30px;
+            text-align: right;
+        }
+
+        .attack-bar {
+            height: 8px;
+            background: rgba(0, 255, 0, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 255, 0, 0.2);
+        }
+
+        .attack-bar-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .ddos .attack-bar-fill {
+            background: #ff0000;
+            box-shadow: 0 0 10px #ff0000;
+        }
+
+        .malware .attack-bar-fill {
+            background: #ffaa00;
+            box-shadow: 0 0 10px #ffaa00;
+        }
+
+        .phishing .attack-bar-fill {
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        .ransomware .attack-bar-fill {
+            background: #0088ff;
+            box-shadow: 0 0 10px #0088ff;
+        }
+
+        .exploit .attack-bar-fill {
+            background: #ff00ff;
+            box-shadow: 0 0 10px #ff00ff;
+        }
+
+        /* Simulated Data Badge */
+        .simulated-badge {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 170, 0, 0.2);
+            border: 1px solid rgba(255, 170, 0, 0.5);
+            color: #ffaa00;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            z-index: 100;
+            text-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+        }
+
+        /* Bottom Ticker */
+        .ticker-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: rgba(15, 15, 35, 0.9);
+            border-top: 2px solid rgba(0, 255, 0, 0.4);
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .ticker-label {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #0f0;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            z-index: 101;
+            background: rgba(15, 15, 35, 0.95);
+            padding: 0 10px;
+        }
+
+        .ticker-content {
+            display: flex;
+            animation: scroll-ticker 30s linear infinite;
+            white-space: nowrap;
+            padding-left: 100px;
+            height: 60px;
+            align-items: center;
+        }
+
+        @keyframes scroll-ticker {
+            0% {
+                transform: translateX(0);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+
+        .ticker-item {
+            display: inline-block;
+            padding: 0 40px;
+            color: #0f0;
+            font-size: 12px;
+            border-right: 2px solid rgba(0, 255, 0, 0.2);
+        }
+
+        .ticker-item:last-child {
+            border-right: none;
+        }
+
+        /* Attack lines */
+        .attack-arc {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            filter: drop-shadow(0 0 2px currentColor);
+        }
+
+        /* Explosion animation */
+        @keyframes explosion {
+            0% {
+                r: 5px;
+                opacity: 1;
+                filter: drop-shadow(0 0 10px currentColor);
+            }
+            100% {
+                r: 30px;
+                opacity: 0;
+                filter: drop-shadow(0 0 50px currentColor);
+            }
+        }
+
+        .explosion {
+            animation: explosion 0.8s ease-out forwards;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            #map {
+                left: 290px;
+                right: 270px;
+            }
+
+            .stats-panel {
+                width: 260px;
+                font-size: 13px;
+                top: 10px;
+                left: 10px;
+            }
+
+            .breakdown-panel {
+                width: 240px;
+                font-size: 13px;
+                top: 10px;
+                right: 10px;
+            }
+
+            .stats-panel h2,
+            .breakdown-panel h2 {
+                font-size: 14px;
+            }
+
+            .attack-counter {
+                font-size: 24px;
+            }
+
+            .ticker-container {
+                height: 50px;
+            }
+
+            .ticker-item {
+                font-size: 10px;
+                padding: 0 30px;
+            }
+
+            .simulated-badge {
+                font-size: 10px;
+                padding: 6px 12px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            #map {
+                left: 280px;
+                right: 20px;
+            }
+
+            .stats-panel {
+                width: 240px;
+                padding: 15px;
+                top: 8px;
+                left: 8px;
+            }
+
+            .breakdown-panel {
+                display: none;
+            }
+
+            .simulated-badge {
+                font-size: 9px;
+                padding: 5px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="simulated-badge">⚠️ SIMULATED DATA</div>
+    
+    <div class="stats-panel">
+        <h2>🔴 ATTACK MONITOR</h2>
+        <div class="attack-counter-label">TOTAL ATTACKS</div>
+        <div class="attack-counter" id="attackCounter">0</div>
+        
+        <div class="stats-section">
+            <h3>Top Attacking Countries</h3>
+            <ul class="stats-list" id="attackingCountries">
+                <li><span class="stat-rank">1.</span><span>Loading...</span><span>0</span></li>
+            </ul>
+        </div>
+        
+        <div class="stats-section">
+            <h3>Top Targeted Countries</h3>
+            <ul class="stats-list" id="targetedCountries">
+                <li><span class="stat-rank">1.</span><span>Loading...</span><span>0</span></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="breakdown-panel">
+        <h2>⚔️ ATTACK TYPES</h2>
+        
+        <div class="attack-type ddos">
+            <div class="attack-type-label">
+                <span class="attack-type-name">🔴 DDoS</span>
+                <span class="attack-type-count" id="count-ddos">0</span>
+            </div>
+            <div class="attack-bar">
+                <div class="attack-bar-fill" id="bar-ddos"></div>
+            </div>
+        </div>
+
+        <div class="attack-type malware">
+            <div class="attack-type-label">
+                <span class="attack-type-name">🟡 Malware</span>
+                <span class="attack-type-count" id="count-malware">0</span>
+            </div>
+            <div class="attack-bar">
+                <div class="attack-bar-fill" id="bar-malware"></div>
+            </div>
+        </div>
+
+        <div class="attack-type phishing">
+            <div class="attack-type-label">
+                <span class="attack-type-name">🟢 Phishing</span>
+                <span class="attack-type-count" id="count-phishing">0</span>
+            </div>
+            <div class="attack-bar">
+                <div class="attack-bar-fill" id="bar-phishing"></div>
+            </div>
+        </div>
+
+        <div class="attack-type ransomware">
+            <div class="attack-type-label">
+                <span class="attack-type-name">🔵 Ransomware</span>
+                <span class="attack-type-count" id="count-ransomware">0</span>
+            </div>
+            <div class="attack-bar">
+                <div class="attack-bar-fill" id="bar-ransomware"></div>
+            </div>
+        </div>
+
+        <div class="attack-type exploit">
+            <div class="attack-type-label">
+                <span class="attack-type-name">🟣 Exploit</span>
+                <span class="attack-type-count" id="count-exploit">0</span>
+            </div>
+            <div class="attack-bar">
+                <div class="attack-bar-fill" id="bar-exploit"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ticker-container">
+        <div class="ticker-label">⚡ ATTACK LOG</div>
+        <div class="ticker-content" id="tickerContent"></div>
+    </div>
+
+    <script>
+        // ===== CONFIGURATION =====
+        const CITIES = [
+            // North America
+            { name: 'New York', country: 'USA', lat: 40.7128, lng: -74.0060 },
+            { name: 'Los Angeles', country: 'USA', lat: 34.0522, lng: -118.2437 },
+            { name: 'Chicago', country: 'USA', lat: 41.8781, lng: -87.6298 },
+            { name: 'Toronto', country: 'Canada', lat: 43.6532, lng: -79.3832 },
+            { name: 'Mexico City', country: 'Mexico', lat: 19.4326, lng: -99.1332 },
+            
+            // South America
+            { name: 'São Paulo', country: 'Brazil', lat: -23.5505, lng: -46.6333 },
+            { name: 'Buenos Aires', country: 'Argentina', lat: -34.6037, lng: -58.3816 },
+            { name: 'Lima', country: 'Peru', lat: -12.0464, lng: -77.0428 },
+            
+            // Europe
+            { name: 'London', country: 'UK', lat: 51.5074, lng: -0.1278 },
+            { name: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522 },
+            { name: 'Moscow', country: 'Russia', lat: 55.7558, lng: 37.6173 },
+            { name: 'Berlin', country: 'Germany', lat: 52.5200, lng: 13.4050 },
+            { name: 'Amsterdam', country: 'Netherlands', lat: 52.3676, lng: 4.9041 },
+            { name: 'Stockholm', country: 'Sweden', lat: 59.3293, lng: 18.0686 },
+            { name: 'Dublin', country: 'Ireland', lat: 53.3498, lng: -6.2603 },
+            { name: 'Warsaw', country: 'Poland', lat: 52.2297, lng: 21.0122 },
+            
+            // Middle East & Africa
+            { name: 'Dubai', country: 'UAE', lat: 25.2048, lng: 55.2708 },
+            { name: 'Istanbul', country: 'Turkey', lat: 41.0082, lng: 28.9784 },
+            { name: 'Cairo', country: 'Egypt', lat: 30.0444, lng: 31.2357 },
+            { name: 'Lagos', country: 'Nigeria', lat: 6.5244, lng: 3.3792 },
+            { name: 'Johannesburg', country: 'South Africa', lat: -26.2023, lng: 28.0436 },
+            
+            // Asia
+            { name: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503 },
+            { name: 'Beijing', country: 'China', lat: 39.9042, lng: 116.4074 },
+            { name: 'Shanghai', country: 'China', lat: 31.2304, lng: 121.4737 },
+            { name: 'Hong Kong', country: 'Hong Kong', lat: 22.3193, lng: 114.1694 },
+            { name: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198 },
+            { name: 'Mumbai', country: 'India', lat: 19.0760, lng: 72.8777 },
+            { name: 'Bangkok', country: 'Thailand', lat: 13.7563, lng: 100.5018 },
+            { name: 'Seoul', country: 'South Korea', lat: 37.5665, lng: 126.9780 },
+            
+            // Oceania
+            { name: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093 },
+            { name: 'Auckland', country: 'New Zealand', lat: -37.0882, lng: 174.7765 }
+        ];
+
+        const ATTACK_TYPES = [
+            { name: 'DDoS', color: '#ff0000', emoji: '🔴' },
+            { name: 'Malware', color: '#ffaa00', emoji: '🟡' },
+            { name: 'Phishing', color: '#00ff00', emoji: '🟢' },
+            { name: 'Ransomware', color: '#0088ff', emoji: '🔵' },
+            { name: 'Exploit', color: '#ff00ff', emoji: '🟣' }
+        ];
+
+        // ===== STATE =====
+        let map;
+        let attackCount = 0;
+        let attackStats = {
+            byType: {
+                'DDoS': 0,
+                'Malware': 0,
+                'Phishing': 0,
+                'Ransomware': 0,
+                'Exploit': 0
+            },
+            attacking: {},
+            targeted: {}
+        };
+        let tickerQueue = [];
+        const maxTickerItems = 20;
+
+        // ===== MAP INITIALIZATION =====
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap contributors, © CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+
+            // Add city markers
+            CITIES.forEach(city => {
+                const marker = L.circleMarker([city.lat, city.lng], {
+                    radius: 4,
+                    fillColor: '#00ff00',
+                    color: '#0f0',
+                    weight: 1,
+                    opacity: 0.7,
+                    fillOpacity: 0.5
+                }).addTo(map);
+
+                marker.bindPopup(`<div style="color: #0f0; background: #000; border: 1px solid #0f0; padding: 8px; font-family: 'Share Tech Mono'; font-size: 12px;">${city.name}<br>${city.country}</div>`, {
+                    className: 'leaflet-popup-custom'
+                });
+            });
+
+            // Custom popup styling
+            const style = document.createElement('style');
+            style.textContent = `
+                .leaflet-popup-custom .leaflet-popup-content-wrapper {
+                    background: rgba(10, 14, 39, 0.95) !important;
+                    border: 1px solid #0f0 !important;
+                    border-radius: 4px !important;
+                }
+                .leaflet-popup-custom .leaflet-popup-tip {
+                    background: rgba(10, 14, 39, 0.95) !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // ===== ATTACK SIMULATION =====
+        function getRandomCity() {
+            return CITIES[Math.floor(Math.random() * CITIES.length)];
+        }
+
+        function getRandomAttackType() {
+            return ATTACK_TYPES[Math.floor(Math.random() * ATTACK_TYPES.length)];
+        }
+
+        function drawAttackArc(sourceCity, targetCity, attackType) {
+            const source = [sourceCity.lat, sourceCity.lng];
+            const target = [targetCity.lat, targetCity.lng];
+
+            // Create SVG overlay for the arc
+            const svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svgElement.setAttribute('style', 'position: absolute; top: 0; left: 0; width: 100%; height: 100%;');
+
+            const arcPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            arcPath.setAttribute('class', 'attack-arc');
+            arcPath.setAttribute('stroke', attackType.color);
+            arcPath.setAttribute('stroke-width', '2');
+
+            // Calculate arc path using Leaflet's projection
+            const sourcePoint = map.latLngToContainerPoint(L.latLng(source[0], source[1]));
+            const targetPoint = map.latLngToContainerPoint(L.latLng(target[0], target[1]));
+
+            // Create quadratic curve (arc)
+            const midX = (sourcePoint.x + targetPoint.x) / 2;
+            const midY = (sourcePoint.y + targetPoint.y) / 2;
+            const offsetY = -Math.hypot(targetPoint.x - sourcePoint.x, targetPoint.y - sourcePoint.y) / 4;
+
+            const pathData = `M ${sourcePoint.x} ${sourcePoint.y} Q ${midX} ${midY + offsetY} ${targetPoint.x} ${targetPoint.y}`;
+            arcPath.setAttribute('d', pathData);
+
+            svgElement.appendChild(arcPath);
+            document.getElementById('map').insertAdjacentElement('afterbegin', svgElement);
+
+            // Animate the arc
+            let progress = 0;
+            const animationDuration = 1.5;
+            const startTime = Date.now();
+
+            function animateArc() {
+                const elapsed = (Date.now() - startTime) / 1000;
+                progress = Math.min(elapsed / animationDuration, 1);
+
+                // Calculate current endpoint
+                const currentPoint = {
+                    x: sourcePoint.x + (targetPoint.x - sourcePoint.x) * progress,
+                    y: sourcePoint.y + (targetPoint.y - sourcePoint.y) * progress
+                };
+
+                // Redraw only up to current progress
+                const progressPathData = `M ${sourcePoint.x} ${sourcePoint.y} Q ${midX} ${midY + offsetY * (1 - Math.pow(progress, 2))} ${currentPoint.x} ${currentPoint.y}`;
+                arcPath.setAttribute('d', progressPathData);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateArc);
+                } else {
+                    // Arc complete, create explosion at target
+                    createExplosion(targetCity, attackType.color);
+                    
+                    // Fade out arc
+                    let fadeProgress = 0;
+                    const fadeStart = Date.now();
+                    
+                    function fadeArc() {
+                        fadeProgress = (Date.now() - fadeStart) / 3000;
+                        arcPath.style.opacity = Math.max(0, 1 - fadeProgress);
+                        
+                        if (fadeProgress < 1) {
+                            requestAnimationFrame(fadeArc);
+                        } else {
+                            svgElement.remove();
+                        }
+                    }
+                    fadeArc();
+                }
+            }
+            animateArc();
+        }
+
+        function createExplosion(city, color) {
+            const point = map.latLngToContainerPoint(L.latLng(city.lat, city.lng));
+
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('class', 'explosion');
+            circle.setAttribute('cx', point.x);
+            circle.setAttribute('cy', point.y);
+            circle.setAttribute('r', '5');
+            circle.setAttribute('fill', 'none');
+            circle.setAttribute('stroke', color);
+            circle.setAttribute('stroke-width', '2');
+            circle.style.color = color;
+
+            const svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svgElement.setAttribute('style', 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;');
+            svgElement.appendChild(circle);
+
+            document.getElementById('map').insertAdjacentElement('afterbegin', svgElement);
+
+            setTimeout(() => svgElement.remove(), 800);
+        }
+
+        function generateAttack() {
+            const sourceCity = getRandomCity();
+            const targetCity = getRandomCity();
+            
+            // Ensure source and target are different
+            if (sourceCity.name === targetCity.name) {
+                return generateAttack();
+            }
+
+            const attackType = getRandomAttackType();
+
+            // Update statistics
+            attackCount++;
+            attackStats.byType[attackType.name]++;
+            
+            attackStats.attacking[sourceCity.country] = (attackStats.attacking[sourceCity.country] || 0) + 1;
+            attackStats.targeted[targetCity.country] = (attackStats.targeted[targetCity.country] || 0) + 1;
+
+            // Draw attack
+            drawAttackArc(sourceCity, targetCity, attackType);
+
+            // Add to ticker
+            const tickerText = `${attackType.emoji} ${attackType.name} attack from ${sourceCity.name} → ${targetCity.name}`;
+            tickerQueue.unshift({
+                text: tickerText,
+                timestamp: Date.now()
+            });
+
+            // Keep only recent items
+            if (tickerQueue.length > maxTickerItems) {
+                tickerQueue.pop();
+            }
+
+            updateUI();
+        }
+
+        // ===== UI UPDATES =====
+        function updateUI() {
+            // Update attack counter
+            document.getElementById('attackCounter').textContent = attackCount;
+
+            // Update attack type counts
+            Object.keys(attackStats.byType).forEach(type => {
+                const count = attackStats.byType[type];
+                document.getElementById(`count-${type.toLowerCase()}`).textContent = count;
+                
+                // Update bar width
+                const barFill = document.getElementById(`bar-${type.toLowerCase()}`);
+                const maxCount = Math.max(...Object.values(attackStats.byType), 1);
+                const percentage = (count / maxCount) * 100;
+                barFill.style.width = percentage + '%';
+            });
+
+            // Update attacking countries
+            const topAttacking = Object.entries(attackStats.attacking)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+            
+            const attackingList = document.getElementById('attackingCountries');
+            attackingList.innerHTML = topAttacking.map((entry, idx) => 
+                `<li><span class="stat-rank">${idx + 1}.</span><span>${entry[0]}</span><span>${entry[1]}</span></li>`
+            ).join('');
+
+            // Update targeted countries
+            const topTargeted = Object.entries(attackStats.targeted)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+            
+            const targetedList = document.getElementById('targetedCountries');
+            targetedList.innerHTML = topTargeted.map((entry, idx) => 
+                `<li><span class="stat-rank">${idx + 1}.</span><span>${entry[0]}</span><span>${entry[1]}</span></li>`
+            ).join('');
+
+            // Update ticker
+            updateTicker();
+        }
+
+        function updateTicker() {
+            const tickerContent = document.getElementById('tickerContent');
+            const tickerHTML = tickerQueue.map(item => {
+                const secondsAgo = Math.floor((Date.now() - item.timestamp) / 1000);
+                const timeStr = secondsAgo === 0 ? 'now' : `${secondsAgo}s ago`;
+                return `<span class="ticker-item">${item.text} | ${timeStr}</span>`;
+            }).join('');
+            tickerContent.innerHTML = tickerHTML || '<span class="ticker-item">Waiting for attacks...</span>';
+        }
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            
+            // Generate first attack immediately
+            generateAttack();
+            
+            // Generate new attack every 1.5 seconds
+            setInterval(generateAttack, 1500);
+            
+            // Update ticker every second
+            setInterval(updateTicker, 1000);
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                map.invalidateSize();
+            });
+        });
+    </script>
+</body>
+</html>
